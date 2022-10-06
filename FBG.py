@@ -12,47 +12,55 @@ import numpy as np
 
 class FBG_process:
 
-    def __init__( self, Num_CH: int, Num_AA: int, Calibration_matrix: dict ):
-        self._Num_CH = Num_CH # channel number
-        self._Num_AA = Num_AA # Active Area number
-        self._cal_mat = Calibration_matrix # calibration matrix
+    def __init__( self, num_CH: int, num_AA: int, calibration_matrix: dict ):
+        self.Num_CH = num_CH # channel number
+        self.Num_AA = num_AA # Active Area number
+        self.cal_mat = calibration_matrix # calibration matrix
+        """
+        cal_mat: dict, {'AA1': [num_AA * 2], 'AA2':[num_AA * 2],...}
+        """
         
-        self.ref_wavelength = np.zeros(Num_CH * Num_AA)
+        self.ref_wavelength = np.zeros(num_CH * num_AA).reshape(num_CH,num_AA)
+        """
+        ref_wavelength: ndarray,    CH1 AA1 AA2 AA3 ...
+                                    CH2 AA1 AA2 AA3 ...
+                                    ...
+        """
 
     # __init__
+
     #properties
-
-    @property
-    def Num_CH( self ):
-        return self._Num_CH
-
-    @property
-    def Num_AA( self ):
-        return self._Num_AA
-    @property
-    def cal_mat( self ):
-        return self._cal_mat
-
-    @Num_AA.setter
-    def Num_AA( self, num_AA: int):
-        self._Num_AA = num_AA
-
-    @Num_CH.setter
-    def Num_CH( self, num_CH: int):
-        self._Num_CH = num_CH
     
-    
-    @cal_mat.setter
-    def cal_mat( self, Calibration_matrix: dict):
-        self._cal_mat = Calibration_matrix
-
 
     #functions
-    def get_curvatures( self, raw_signal: np.ndarray) -> np.ndarray:
+    def getCurvatures( self, raw_signal: np.ndarray) -> np.ndarray:
         """
         calculate curvatures
-        output: curvatures Num_AA * 2
+        input: raw_signal, Num_CH * Num_AA
+        output: curvatures, Num_AA * 2
         """
+        curvatures = np.zeros(self.Num_AA*2).reshape(self.Num_AA,2)
+
+        # assume the ref_wavelength has been updated
+        # get difference between rawdata and refdata
+        diff_value = raw_signal - self.ref_wavelength
+
+        for i in range(self.Num_AA):
+            AAi = np.array([diff_value[j,i] for j in range(self.Num_CH)])
+            curvatures[[i],:]  = AAi @ self.cal_mat['AA'+str(i+1)]
+        # end for
+
+        return curvatures
+    
+    def setRefdata(self,reference_wavelength:np.ndarray):
+        self.ref_wavelength = reference_wavelength
+    # end setRefdata
+
+
+        
+
+
+        
 
 
         # todo

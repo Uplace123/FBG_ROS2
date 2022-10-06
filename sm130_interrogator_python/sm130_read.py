@@ -1,11 +1,9 @@
 import socket
 
-from typing import List, Union
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import numpy as np
 
 
-@dataclass
 class StatusHeader:
     HEADER_SIZE = 88
     fullSpectrumRadix: int = None
@@ -26,33 +24,27 @@ class StatusHeader:
     headerSize: int = None
     headerVersion: int = None
 
-@dataclass
 class PeakContainer:
-    CH1: List[ float ] = field( default_factory=list )
-    CH2: List[ float ] = field( default_factory=list )
-    CH3: List[ float ] = field( default_factory=list )
-    CH4: List[ float ] = field( default_factory=list )
+    CH1: np.ndarray = None
+    CH2: np.ndarray = None
+    CH3: np.ndarray = None
+    CH4: np.ndarray = None
+    # end de
 
-    @property
-    def peaks( self ):
-        return [ self.CH1, self.CH2, self.CH3, self.CH4 ]
-
-
-@dataclass
 class PeakMessage:
-    header:StatusHeader = field( default_factory=StatusHeader)
-    peak_container:PeakContainer = field(default_factory=PeakContainer)
-
-
-
-
+    header = StatusHeader()
+    peak_container = PeakContainer()
 
 class Interrogator():
+    peak_msg = PeakMessage()
+    available_ch = {}
+
     def __init__(self, address, port, timeout: float = 1):
         self.sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM)
         self.socketTimeout = timeout
         self.is_ready = False
         self.connect(address,port)
+        
 
     @property
     def socketTimeout(self):
@@ -66,39 +58,123 @@ class Interrogator():
         try:
             self.sock.connect((address,port))
             self.is_ready = True
+            data = self.sendCommand("#GET_UNBUFFERED_DATA")
+            self.peak_msg.header = self.parseHeader(data)
+            self.check_ch_available()
+            # get header
         except socket.timeout:
             self.is_ready = False
+            return None
 
-    def getData(self):
+    def getData(self) -> np.ndarray:
         """ return PeakMessage object, None if not connected"""
         if not self.is_ready:
             print("Fail to connect with Interrogator!")
             return None
-        data = self.sendCommand( "#GET_UNBUFFERED_DATA")
-        peak_msg = PeakMessage()
-        peak_msg.header = self.parseHeader(data)
+        data = self.sendCommand("#GET_UNBUFFERED_DATA")
 
-        offset = peak_msg.header.HEADER_SIZE
+        offset = self.peak_msg.header.HEADER_SIZE
 
         # sm130 has 4 channel
-        for ch in range(4):
-            if ch == 0:
-                num_peaks = peak_msg.header.numCH1Sensors
-            elif ch == 1:
-                num_peaks = peak_msg.header.numCH2Sensors
-            elif ch == 2:
-                num_peaks = peak_msg.header.numCH3Sensors
-            elif ch == 3:
-                num_peaks = peak_msg.header.numCH4Sensors
-            else:
-                continue
+        for ch,num_peaks in self.available_ch.items():          
+                
+            temp_ch_val = np.zeros(num_peaks)
 
-            for _ in range(num_peaks):
-                peak_val = int.from_bytes(data[offset:offset + 4],'little' ) / peak_msg.header.granularity
+
+            # num_peaks should be the same for available channels
+            for i in range(num_peaks):
+                peak_val = int.from_bytes(data[offset:offset + 4],'little' ) / self.peak_msg.header.granularity
                 offset += 4
-                peak_msg.peak_container.peaks[ch].append(peak_val)
+                temp_ch_val[i] = peak_val
+            # end for
 
-        return peak_msg
+            if ch == 'CH1':
+                self.peak_msg.peak_container.CH1 = temp_ch_val
+            elif ch == 'CH2':
+                self.peak_msg.peak_container.CH2 = temp_ch_val
+            elif ch == 'CH3':
+                self.peak_msg.peak_container.CH3 = temp_ch_val
+            elif ch == 'CH4':
+                self.peak_msg.peak_container.CH4 = temp_ch_val
+            else:
+                pass
+            # end if
+        # end for
+        return self.get_raw_data()
+    # end getData
+
+    def check_ch_available(self):
+        # find the available channel
+        if self.peak_msg.header.numCH1Sensors != 0:
+            self.available_ch['CH1'] = self.peak_msg.header.numCH1Sensors
+        else:
+            pass
+        if self.peak_msg.header.numCH2Sensors != 0:
+            self.available_ch['CH2'] = self.peak_msg.header.numCH2Sensors
+        else:
+            pass
+        if self.peak_msg.header.numCH3Sensors != 0:
+            self.available_ch['CH3'] = self.peak_msg.header.numCH3Sensors
+        else:
+            pass
+        if self.peak_msg.header.numCH4Sensors != 0:
+            self.available_ch['CH4'] = self.peak_msg.header.numCH4Sensors
+        else:
+            pass
+    # end check_ch_available
+
+        
+
+
+    def get_raw_data(self) -> np.ndarray:
+        # return CH raw data
+        raw_data = None
+        for ch,num_peaks in self.available_ch.items():          
+            if ch == 'CH1':
+                if raw_data is None:
+                    raw_data = self.peak_msg.peak_container.CH1
+                else:
+                    raw_data = np.vstack((raw_data,self.peak_msg.peak_container.CH1))
+                # end if
+            else:
+                pass
+            if ch == 'CH2':
+                if raw_data is None:
+                    raw_data = self.peak_msg.peak_container.CH2
+                else:
+                    raw_data = np.vstack((raw_data,self.peak_msg.peak_container.CH2))
+                # end if
+            else:
+                pass
+
+            if ch == 'CH3':
+                if raw_data is None:
+                    raw_data = self.peak_msg.peak_container.CH3
+                else:
+                    raw_data = np.vstack((raw_data,self.peak_msg.peak_container.CH3))
+                # end if
+            else:
+                pass
+
+            if ch == 'CH4':
+                if raw_data is None:
+                    raw_data = self.peak_msg.peak_container.CH4
+                else:
+                    raw_data = np.vstack((raw_data,self.peak_msg.peak_container.CH4))
+                # end if
+            else:
+                pass
+        return raw_data
+    # end get_raw_data
+
+    
+    def getHeader(self):
+        # return header info
+        # todo
+        print("getHeader is called!")
+        print("function not finish yet")
+
+    #end get_Header
 
     def sendCommand( self, command: str):
         """ return byte string of response"""
